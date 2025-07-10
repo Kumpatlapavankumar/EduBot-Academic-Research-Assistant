@@ -94,7 +94,7 @@ llm = ChatOpenAI(temperature=0.2, max_tokens=1500, model_name="gpt-3.5-turbo")
 if process_url_clicked:
     with st.spinner("Fetching and processing papers..."):
         loader = UnstructuredURLLoader(urls=urls)
-        data = loader.load()
+        docs = loader.load()  
         progress_placeholder.progress(33, "Loaded Papers ✅")
 
         text_splitter = RecursiveCharacterTextSplitter(
