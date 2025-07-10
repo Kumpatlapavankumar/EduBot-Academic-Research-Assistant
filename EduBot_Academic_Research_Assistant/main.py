@@ -11,8 +11,12 @@ from langchain.document_loaders import UnstructuredURLLoader
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 
-# Load API key from .env
-load_dotenv()
+if "OPENAI_API_KEY" in st.secrets:
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+else:
+    from dotenv import load_dotenv
+    load_dotenv()
+
 
 st.set_page_config(page_title="EduBot: Academic Paper Research", page_icon="📚", layout="wide")
 
