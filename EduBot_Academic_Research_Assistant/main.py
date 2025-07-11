@@ -1,26 +1,25 @@
 import os
 import streamlit as st
 import pickle
-import time
-
 from dotenv import load_dotenv
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import UnstructuredURLLoader
+from langchain.document_loaders import (
+    UnstructuredURLLoader,
+    TextLoader,
+    PyPDFLoader
+)
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
+from langchain.schema import Document  # Needed for text files
 
-if "OPENAI_API_KEY" in st.secrets:
-    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-else:
-    from dotenv import load_dotenv
-    load_dotenv()
-
+# Load API key from .env
+load_dotenv()
 
 st.set_page_config(page_title="EduBot: Academic Paper Research", page_icon="📚", layout="wide")
 
-# Custom CSS for Premium UI
+# Custom CSS
 st.markdown("""
     <style>
     .stApp {
@@ -57,9 +56,6 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.5em;
     }
-    .stSidebar {
-        background-color: rgba(0,0,0,0);
-    }
     .footer {
         position: relative;
         text-align: center;
@@ -73,28 +69,30 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
 # Title & Subtitle
 st.markdown('<div class="title">EduBot: Academic Research Assistant 📚</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Summarize & Query Research Papers Instantly</div>', unsafe_allow_html=True)
 
-# Sidebar Inputs (No logo)
+# Sidebar Inputs
 with st.sidebar:
     st.subheader("📑 Enter Research Paper URLs")
-    urls = []
-    for i in range(3):
-        url = st.text_input(f"🔗 Paper URL {i+1}")
-        urls.append(url)
-    process_url_clicked = st.button("🚀 Process Papers")
+    urls = [st.text_input(f"🔗 Paper URL {i+1}") for i in range(3)]
+    process_url_clicked = st.button("🚀 Process Papers from URLs")
+
+    st.markdown("---")
+    st.subheader("📂 Upload PDF or Text Files")
+    uploaded_files = st.file_uploader("Upload Files", type=["pdf", "txt"], accept_multiple_files=True)
+    process_file_clicked = st.button("🚀 Process Uploaded Files")
 
 file_path = "edu_faiss_store.pkl"
 progress_placeholder = st.empty()
 llm = ChatOpenAI(temperature=0.2, max_tokens=1500, model_name="gpt-3.5-turbo")
 
+# URL Processing
 if process_url_clicked:
-    with st.spinner("Fetching and processing papers..."):
+    with st.spinner("Fetching and processing papers from URLs..."):
         loader = UnstructuredURLLoader(urls=urls)
-        docs = loader.load()  
+        data = loader.load()
         progress_placeholder.progress(33, "Loaded Papers ✅")
 
         text_splitter = RecursiveCharacterTextSplitter(
@@ -111,10 +109,49 @@ if process_url_clicked:
         with open(file_path, "wb") as f:
             pickle.dump(vectorstore, f)
 
-        st.success("✅ Papers Processed Successfully!")
+        st.success("✅ Papers Processed Successfully from URLs!")
 
+# File Processing
+if process_file_clicked:
+    if not uploaded_files:
+        st.error("❌ Please upload at least one file.")
+    else:
+        all_docs = []
+        with st.spinner("Processing uploaded files..."):
+            for uploaded_file in uploaded_files:
+                file_name = uploaded_file.name
+                if file_name.endswith(".txt"):
+                    text = uploaded_file.read().decode("utf-8")
+                    docs = [Document(page_content=text, metadata={"source": file_name})]
+                elif file_name.endswith(".pdf"):
+                    with open(file_name, "wb") as f:
+                        f.write(uploaded_file.read())
+                    loader = PyPDFLoader(file_name)
+                    docs = loader.load()
+                    os.remove(file_name)
+                else:
+                    continue
+                all_docs.extend(docs)
+
+            progress_placeholder.progress(33, "Loaded Files ✅")
+            text_splitter = RecursiveCharacterTextSplitter(
+                separators=['\n\n', '\n', '.', ','],
+                chunk_size=3000
+            )
+            docs = text_splitter.split_documents(all_docs)
+            progress_placeholder.progress(66, "Split Text ✅")
+
+            embeddings = OpenAIEmbeddings()
+            vectorstore = FAISS.from_documents(docs, embeddings)
+            progress_placeholder.progress(100, "Vectorstore Built ✅")
+
+            with open(file_path, "wb") as f:
+                pickle.dump(vectorstore, f)
+
+            st.success("✅ Files Processed Successfully!")
+
+# Query Section
 query = st.text_input("💬 Ask Your Academic Question:")
-
 if query:
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
